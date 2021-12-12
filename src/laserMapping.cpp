@@ -711,7 +711,7 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
                 normvec->points[i].x = pabcd(0);
                 normvec->points[i].y = pabcd(1);
                 normvec->points[i].z = pabcd(2);
-                normvec->points[i].intensity = pd2;
+                normvec->points[i].intensity = pd2; //以intensity记录点到面残差
                 res_last[i] = abs(pd2);// 残差，距离
             }
         }
@@ -757,14 +757,16 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
 
         /*** get the normal vector of closest surface/corner ***/
         const PointType &norm_p = corr_normvect->points[i];
-        V3D norm_vec(norm_p.x, norm_p.y, norm_p.z);//对应局部法相量
+        V3D norm_vec(norm_p.x, norm_p.y, norm_p.z);//对应局部法相量, world系下
 
         /*** calculate the Measuremnt Jacobian matrix H ***/
-        V3D C(s.rot.conjugate() *norm_vec); // 将法相量旋转到imu系下
-        V3D A(point_crossmat * C);
+        V3D C(s.rot.conjugate() *norm_vec); // 将对应局部法相量旋转到imu系下 corr_normal_I
+        V3D A(point_crossmat * C); //残差对角度求导系数 P(IMU)^ [R(imu <-- w) * normal_w]
         //添加数据到矩阵
         if (extrinsic_est_en)
         {
+            // B = lidar_p^ R(L <-- I) * corr_normal_I
+            // B = lidar_p^ R(L <-- I) * R(I <-- W) * normal_W
             V3D B(point_be_crossmat * s.offset_R_L_I.conjugate() * C); //s.rot.conjugate()*norm_vec);
             ekfom_data.h_x.block<1, 12>(i,0) << norm_p.x, norm_p.y, norm_p.z, VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(B), VEC_FROM_ARRAY(C);
         }
@@ -989,7 +991,7 @@ int main(int argc, char** argv)
             /*** iterated state estimation ***/
             double t_update_start = omp_get_wtime();
             double solve_H_time = 0;
-            kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
+            kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time); //预测、更新
             state_point = kf.get_x();
             euler_cur = SO3ToEuler(state_point.rot);
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;// world系下lidar坐标

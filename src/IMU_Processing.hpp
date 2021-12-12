@@ -334,7 +334,8 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
       //imu_state:lidar终点时刻与imu终点时刻较大者，imu位姿
       //Ti - Te
       //T_ei 从imu终点位置指向索引i时刻imu位置的平移向量，w系, 即T_i - T_e
-      V3D T_ei(pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt - imu_state.pos);//T(i <-- end) 从imu终点位置指向索引i时刻imu位置的平移向量
+      V3D T_ei(pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt - imu_state.pos);//T(i <-- end)
+      // 从imu终点位置指向索引i时刻imu位置的平移向量
 
       //imu_state.offset_R_L_I:终点时刻imu和lidar的外参
 
@@ -346,7 +347,8 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
        * T_i - T_e = T_ei
        * imu_state.offset_R_L_I.conjugate() * （P - imu_state.offset_T_L_I) 变换到终点时刻的lidar系下
        ***/
-      V3D P_compensate = imu_state.offset_R_L_I.conjugate() * (imu_state.rot.conjugate() * (R_i * (imu_state.offset_R_L_I * P_i + imu_state.offset_T_L_I) + T_ei) - imu_state.offset_T_L_I);// not accurate!
+      V3D P_compensate = imu_state.offset_R_L_I.conjugate() * (imu_state.rot.conjugate() * \
+      (R_i * (imu_state.offset_R_L_I * P_i + imu_state.offset_T_L_I) + T_ei) - imu_state.offset_T_L_I);// not accurate!
       
       // save Undistorted points and their rotation
       it_pcl->x = P_compensate(0);
