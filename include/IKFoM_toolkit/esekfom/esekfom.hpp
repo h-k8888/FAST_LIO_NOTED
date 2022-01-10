@@ -1818,9 +1818,9 @@ public:
 			}
 
 			//K_x = K_ * h_x_;
-			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; //误差后验 K*h + (K*H - I) dx
+			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; //误差增量后验 K*h + (K*H - I) dx
 			state x_before = x_;
-			x_.boxplus(dx_); //根据计算得到的误差后验，更新状态量
+			x_.boxplus(dx_); //根据计算得到的误差增量后验，更新状态量
 			dyn_share.converge = true;
 			for(int i = 0; i < n ; i++)
 			{
