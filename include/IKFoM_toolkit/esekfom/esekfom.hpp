@@ -82,9 +82,9 @@ struct dyn_share_datastruct
 	bool valid;
 	bool converge;
 	Eigen::Matrix<T, Eigen::Dynamic, 1> z;
-	Eigen::Matrix<T, Eigen::Dynamic, 1> h;
+	Eigen::Matrix<T, Eigen::Dynamic, 1> h; // estimate measurement (h) 残差
 	Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> h_v;
-	Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> h_x;
+	Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> h_x; // partial differention matrices
 	Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> R;
 };
 
@@ -379,7 +379,7 @@ public:
 		P_ = xp * P_ * xp.transpose() + (f_w1 * dt) * Q * (f_w1 * dt).transpose();
 	#else
 		F_x1 += f_x_final * dt;
-		P_ = (F_x1) * P_ * (F_x1).transpose() + (dt * f_w_final) * Q * (dt * f_w_final).transpose();
+		P_ = (F_x1) * P_ * (F_x1).transpose() + (dt * f_w_final) * Q * (dt * f_w_final).transpose();//更新协方差矩阵
 	#endif
 	}
 
@@ -1623,6 +1623,8 @@ public:
 		dyn_share.valid = true;
 		dyn_share.converge = true;
 		int t = 0;
+
+        //获取上一次的状态和协方差矩阵
 		state x_propagated = x_;
 		cov P_propagated = P_;
 		int dof_Measurement; 
@@ -1634,7 +1636,7 @@ public:
 		for(int i=-1; i<maximum_iter; i++)
 		{
 			dyn_share.valid = true;	
-			h_dyn_share(x_, dyn_share); //计算残差
+			h_dyn_share(x_, dyn_share); //计算残差与雅可比
 
 			if(! dyn_share.valid)
 			{
@@ -1645,18 +1647,19 @@ public:
 			#ifdef USE_sparse
 				spMt h_x_ = dyn_share.h_x.sparseView();
 			#else
-				Eigen::Matrix<scalar_type, Eigen::Dynamic, 12> h_x_ = dyn_share.h_x;
+				Eigen::Matrix<scalar_type, Eigen::Dynamic, 12> h_x_ = dyn_share.h_x; // partial differention matrices
 			#endif
 			double solve_start = omp_get_wtime();
-			dof_Measurement = h_x_.rows();
+			dof_Measurement = h_x_.rows(); // 观测方程个数m
 			vectorized_state dx;
-			x_.boxminus(dx, x_propagated);
+			x_.boxminus(dx, x_propagated); //获取误差dx
 			dx_new = dx;
 			
 			
-			
+			// 迭代过程不更新协方差矩阵，迭代后更新
 			P_ = P_propagated;
-			
+
+            //更新协方差矩阵的传播,更新dx_new
 			Matrix<scalar_type, 3, 3> res_temp_SO3;
 			MTK::vect<3, scalar_type> seg_SO3;
 			for (std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
@@ -1713,6 +1716,7 @@ public:
 			}
 			*/
 
+            // 如果状态量维度大于观测方程 n > m，不满秩
 			if(n > dof_Measurement)
 			{
 			//#ifdef USE_sparse
@@ -1735,10 +1739,11 @@ public:
 				h_x_cur.col(10) = h_x_.col(10);
 				h_x_cur.col(11) = h_x_.col(11);
 				*/
-				
+
+                // 重新计算增益矩阵K
 				Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_ = P_ * h_x_cur.transpose() * (h_x_cur * P_ * h_x_cur.transpose()/R + Eigen::Matrix<double, Dynamic, Dynamic>::Identity(dof_Measurement, dof_Measurement)).inverse()/R;
-				K_h = K_ * dyn_share.h;
-				K_x = K_ * h_x_cur;
+				K_h = K_ * dyn_share.h; // K × h
+				K_x = K_ * h_x_cur; // K * H
 			//#else
 			//	K_= P_ * h_x.transpose() * (h_x * P_ * h_x.transpose() + h_v * R * h_v.transpose()).inverse();
 			//#endif
@@ -1780,7 +1785,7 @@ public:
 				K_ = P_temp.inverse() * h_x.transpose() * R_in;
 				*/
 			#else
-				cov P_temp = (P_/R).inverse();
+				cov P_temp = (P_/R).inverse(); //P^-1
 				//Eigen::Matrix<scalar_type, 12, Eigen::Dynamic> h_T = h_x_.transpose();
 				Eigen::Matrix<scalar_type, 12, 12> HTH = h_x_.transpose() * h_x_; 
 				P_temp. template block<12, 12>(0, 0) += HTH;
@@ -1800,22 +1805,22 @@ public:
 				h_x_cur.col(10) = h_x_.col(10);
 				h_x_cur.col(11) = h_x_.col(11);
 				*/
-				cov P_inv = P_temp.inverse();
+				cov P_inv = P_temp.inverse(); // (H_T_H + P^-1)^-1
 				//std::cout << "line 1781" << std::endl;
-				K_h = P_inv. template block<n, 12>(0, 0) * h_x_.transpose() * dyn_share.h;
+				K_h = P_inv. template block<n, 12>(0, 0) * h_x_.transpose() * dyn_share.h; // (H_T_H + P^-1)^-1 * H^T * h(残差) = K * h
 				//std::cout << "line 1780" << std::endl;
 				//cov HTH_cur = cov::Zero();
 				//HTH_cur. template block<12, 12>(0, 0) = HTH;
 				K_x.setZero(); // = cov::Zero();
-				K_x. template block<n, 12>(0, 0) = P_inv. template block<n, 12>(0, 0) * HTH;
+				K_x. template block<n, 12>(0, 0) = P_inv. template block<n, 12>(0, 0) * HTH; //(H_T_H + P^-1)^-1 * H_T_H = KH
 				//K_= (h_x_.transpose() * h_x_ + (P_/R).inverse()).inverse()*h_x_.transpose();
 			#endif 
 			}
 
 			//K_x = K_ * h_x_;
-			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; 
+			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; //误差后验 K*h + (K*H - I) dx
 			state x_before = x_;
-			x_.boxplus(dx_);
+			x_.boxplus(dx_); //根据计算得到的误差后验，更新状态量
 			dyn_share.converge = true;
 			for(int i = 0; i < n ; i++)
 			{
@@ -1832,6 +1837,7 @@ public:
 				dyn_share.converge = true;
 			}
 
+            // 最后一次迭代更新协方差矩阵
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
